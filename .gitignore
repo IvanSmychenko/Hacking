@@ -1,0 +1,25 @@
+# Ignore Python compiled files
+__pycache__/
+*.py[cod]
+*.so
+
+# Ignore virtual environment
+.venv/
+venv/
+
+# Ignore IDE and editor settings
+.idea/
+.vscode/
+*.sublime-workspace
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Ignore logs and temporary files
+*.log
+*.tmp
+
+# Ignore file.txt but allow an empty placeholder
+file.txt
+!file.txt.empty
