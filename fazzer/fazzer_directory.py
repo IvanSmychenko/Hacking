@@ -2,18 +2,29 @@ import requests
 import os
 import sys
 import logging
+import re
+import configparser
 from concurrent.futures import ThreadPoolExecutor
+
+# Загружаем настройки из application.properties
+config = configparser.ConfigParser()
+config.read("application.properties")
+
+LOG_LEVEL = config.get("Settings", "log_level", fallback="INFO")
+MAX_WORKERS = config.getint("Settings", "max_workers", fallback=10)
+
 
 def setup_logging():
     """Настраивает логирование."""
     logging.basicConfig(
-        level=logging.INFO,
+        level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
             logging.FileHandler("fuzzer.log", encoding="utf-8"),
             logging.StreamHandler(sys.stdout)
         ]
     )
+
 
 def load_file_list(file_name):
     """Загружает список файлов и директорий из файла."""
@@ -23,6 +34,7 @@ def load_file_list(file_name):
     except FileNotFoundError:
         logging.error("Файл со списком не найден.")
         return []
+
 
 def check_url(full_url, output_file):
     """Проверяет доступность URL."""
@@ -40,7 +52,7 @@ def check_url(full_url, output_file):
 
 def fuzz_files(url, extensions, file_list, output_file):
     """Фаззинг файлов на указанном сайте с многопоточностью."""
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = []
         for index, file in enumerate(file_list):
             for ext in extensions:
@@ -48,24 +60,50 @@ def fuzz_files(url, extensions, file_list, output_file):
                 sys.stdout.write(f"\r[*] Проверка: {full_url} ({index + 1}/{len(file_list)})")
                 sys.stdout.flush()
                 futures.append(executor.submit(check_url, full_url, output_file))
+        for future in futures:
+            future.result()  # Дожидаемся выполнения всех потоков
 
     logging.info("\n[✓] Фаззинг завершен. Результаты записаны в file.txt")
+
+
+def is_valid_url(url):
+    """Проверяет, является ли введенный URL корректным."""
+    regex = re.compile(
+        r'^(https?://)?'  # Протокол
+        r'(([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})'  # Доменное имя
+        r'(:[0-9]{1,5})?'  # Порт
+        r'(/.*)?$', re.IGNORECASE)  # Путь
+    return re.match(regex, url)
+
+
+def get_valid_url():
+    """Запрашивает у пользователя URL и проверяет его валидность."""
+    while True:
+        url = input("Введите URL сайта: ").strip()
+        url = url.rstrip('/')
+        if is_valid_url(url):
+            return url
+        logging.error("Введен некорректный URL. Попробуйте снова.")
 
 
 def main():
     setup_logging()
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    file_name = os.path.join(script_dir, "wordlist.txt")
-    output_file = os.path.join(script_dir, "file.txt")
+
+    file_name = input(
+        "Введите имя файла со словарем (нажмите Enter для использования 'wordlist.txt'): ") or os.path.join(script_dir,
+                                                                                                            "wordlist.txt")
+    output_file = input("Введите имя выходного файла (нажмите Enter для использования 'file.txt'): ") or os.path.join(
+        script_dir, "file.txt")
 
     if os.path.exists(output_file):
-        overwrite = input("Файл file.txt уже существует. Перезаписать? (y/n): ").strip().lower()
+        overwrite = input(f"Файл {output_file} уже существует. Перезаписать? (y/n): ").strip().lower()
         if overwrite != 'y':
             logging.info("Выход из программы.")
             return
         os.remove(output_file)
 
-    url = input("Введите URL сайта (без / на конце): ")
+    url = get_valid_url()
     extensions = [ext.strip() for ext in
                   input("Введите расширения файлов через запятую (например, .txt,.php): ").split(',')]
 
